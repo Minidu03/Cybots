@@ -1,0 +1,111 @@
+#include <MCUFRIEND_kbv.h>
+#include <Adafruit_GFX.h>
+
+MCUFRIEND_kbv tft;
+
+// Color definitions
+#define BLACK   0x0000
+#define WHITE   0xFFFF
+#define RED     0xF800
+#define GREEN   0x07E0
+#define BLUE    0x001F
+#define YELLOW  0xFFE0
+#define CYAN    0x07FF
+#define MAGENTA 0xF81F
+
+int gridWidth, gridHeight;
+
+void setup() {
+  Serial.begin(115200);   // USB debug
+  Serial1.begin(115200);  // ESP32 data (Mega RX1=19, TX1=18)
+
+  uint16_t ID = tft.readID();
+  Serial.print("Detected TFT ID: 0x");
+  Serial.println(ID, HEX);
+
+  // Force ST7793 if detection fails
+  if (ID == 0xD3D3 || ID == 0xFFFF || ID == 0x0) {
+    ID = 0x7793;
+    Serial.println("Forcing ID to 0x7793 (ST7793)");
+  }
+
+  tft.begin(ID);
+  tft.setRotation(1);  // Landscape
+  tft.fillScreen(BLACK);
+
+  gridWidth = tft.width() / 2;
+  gridHeight = tft.height() / 2;
+
+  drawGridLines();
+}
+
+void loop() {
+  if (Serial1.available()) {
+    String data = Serial1.readStringUntil('\n');
+    data.trim();
+
+    // Parse CSV: temp,humidity,heart,spo2
+    int comma1 = data.indexOf(',');
+    int comma2 = data.indexOf(',', comma1 + 1);
+    int comma3 = data.indexOf(',', comma2 + 1);
+
+    if (comma1 > 0 && comma2 > 0 && comma3 > 0) {
+      float temp = data.substring(0, comma1).toFloat();
+      float humidity = data.substring(comma1 + 1, comma2).toFloat();
+      int heart = data.substring(comma2 + 1, comma3).toInt();
+      int spo2 = data.substring(comma3 + 1).toInt();
+
+      drawGrid(0, 0, "Temp", String(temp, 1) + " C", tempColor(temp));
+      drawGrid(1, 0, "Humidity", String(humidity, 1) + " %", humidityColor(humidity));
+      drawGrid(0, 1, "Heart", String(heart) + " bpm", heartColor(heart));
+      drawGrid(1, 1, "SpO2", String(spo2) + " %", spo2Color(spo2));
+    } else {
+      Serial.println("Invalid data: " + data);
+    }
+  }
+}
+
+void drawGridLines() {
+  tft.drawFastVLine(gridWidth, 0, tft.height(), WHITE);
+  tft.drawFastHLine(0, gridHeight, tft.width(), WHITE);
+}
+
+void drawGrid(int col, int row, String title, String value, uint16_t color) {
+  int x = col * gridWidth;
+  int y = row * gridHeight;
+
+  tft.fillRect(x+1, y+1, gridWidth-2, gridHeight-2, BLACK);
+
+  tft.setCursor(x + 10, y + 10);
+  tft.setTextColor(WHITE);
+  tft.setTextSize(2);
+  tft.print(title);
+
+  tft.setCursor(x + 10, y + gridHeight / 2);
+  tft.setTextColor(color);
+  tft.setTextSize(3);
+  tft.print(value);
+}
+
+uint16_t tempColor(float t) {
+  if (t < 30) return GREEN;
+  if (t < 37) return YELLOW;
+  return RED;
+}
+
+uint16_t humidityColor(float h) {
+  if (h < 40) return RED;
+  if (h < 60) return GREEN;
+  return YELLOW;
+}
+
+uint16_t heartColor(int h) {
+  if (h < 60) return RED;
+  if (h <= 100) return GREEN;
+  return YELLOW;
+}
+
+uint16_t spo2Color(int s) {
+  if (s < 95) return RED;
+  return GREEN;
+}

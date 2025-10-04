@@ -1,0 +1,158 @@
+#include WiFi.h
+#include WebServer.h
+#include Wire.h
+#include Adafruit_MLX90614.h
+#include DHT.h
+#include MAX30105.h
+#include ArduinoJson.h
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define ECG_PIN 34   AD8232 analog output
+
+DHT dht(DHTPIN, DHTTYPE);
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+MAX30105 particleSensor;
+
+WebServer server(80);
+
+ Sensor values
+float temperature = 0.0;
+float humidity = 0.0;
+int ir = 0;
+int red = 0;
+int ecg = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+
+   Sensor setup
+  dht.begin();
+  if (!mlx.begin()) {
+    Serial.println(MLX90614 not found. Check wiring.);
+  }
+
+  if (!particleSensor.begin(Wire)) {
+    Serial.println(MAX30105 not found. Check wiring.);
+  } else {
+    particleSensor.setup();   Default config
+  }
+
+   Wi-Fi Access Point
+  WiFi.softAP(ESP32_HealthMonitor, 12345678);
+  Serial.println(Access Point IP);
+  Serial.println(WiFi.softAPIP());
+
+   Web routes
+  server.on(, handleVitalsPage);
+  server.on(data, handleVitalsData);
+  server.begin();
+}
+
+void loop() {
+   Read sensors
+  temperature = mlx.readObjectTempC();
+  humidity = dht.readHumidity();
+  ir = particleSensor.getIR();
+  red = particleSensor.getRed();
+  ecg = analogRead(ECG_PIN);
+
+  server.handleClient();
+}
+
+void handleVitalsData() {
+  StaticJsonDocument200 doc;
+  doc[temp] = isnan(temperature)  0.0  temperature;
+  doc[hum] = isnan(humidity)  0.0  humidity;
+  doc[ir] = ir;
+  doc[red] = red;
+  doc[ecg] = ecg;
+
+  String json;
+  serializeJson(doc, json);
+  server.send(200, applicationjson, json);
+}
+
+void handleVitalsPage() {
+  String html = Rrawliteral(
+!DOCTYPE html
+html
+head
+  titleESP32 Health Monitortitle
+  meta name=viewport content=width=device-width, initial-scale=1
+  style
+    body {
+      font-family 'Segoe UI', sans-serif;
+      background linear-gradient(to right, #f0f4f7, #d9e2ec);
+      margin 0;
+      padding 20px;
+      color #333;
+    }
+    .container {
+      max-width 500px;
+      margin auto;
+      background #fff;
+      padding 20px;
+      border-radius 12px;
+      box-shadow 0 4px 12px rgba(0,0,0,0.1);
+      animation fadeIn 1s ease;
+    }
+    h2 {
+      text-align center;
+      color #2E8B57;
+      margin-bottom 20px;
+    }
+    .vital {
+      display flex;
+      justify-content space-between;
+      padding 10px 0;
+      border-bottom 1px solid #eee;
+      font-size 1.1em;
+    }
+    .label {
+      font-weight bold;
+    }
+    .value {
+      font-weight normal;
+    }
+    .temp { color #e74c3c; }
+    .hum { color #3498db; }
+    .ir { color #8e44ad; }
+    .red { color #d35400; }
+    .ecg { color #16a085; }
+    @keyframes fadeIn {
+      from { opacity 0; transform translateY(10px); }
+      to { opacity 1; transform translateY(0); }
+    }
+  style
+  script
+    function fetchVitals() {
+      fetch('data')
+        .then(response = response.json())
+        .then(data = {
+          document.getElementById('temp').innerText = data.temp + ' °C';
+          document.getElementById('hum').innerText = data.hum + ' %';
+          document.getElementById('ir').innerText = data.ir;
+          document.getElementById('red').innerText = data.red;
+          document.getElementById('ecg').innerText = data.ecg;
+        });
+    }
+    setInterval(fetchVitals, 1000);
+  script
+head
+body onload=fetchVitals()
+  div class=container
+    h2🩺 ESP32 Health Monitorh2
+    div class=vitalspan class=label tempTemperaturespanspan class=value id=temp--spandiv
+    div class=vitalspan class=label humHumidityspanspan class=value id=hum--spandiv
+    div class=vitalspan class=label irIRspanspan class=value id=ir--spandiv
+    div class=vitalspan class=label redREDspanspan class=value id=red--spandiv
+    div class=vitalspan class=label ecgECGspanspan class=value id=ecg--spandiv
+  div
+body
+html
+)rawliteral;
+
+  server.send(200, texthtml, html);
+}
